@@ -20,6 +20,7 @@
 #define CONFIG_FILE         "config.xsp"
 #define CONFIG_DIR          "/etc/sentry"
 #define FULL_CONFIG_FILE    "/etc/sentry/config.xsp"
+#define OLD_CONFIG_FILE     "/etc/sentry/config.old"
 #define TMP_FILE            "/etc/sentry/confing.tmp"
 #define VERSION_FILE        "/etc/sentry/version"
 

@@ -693,6 +693,85 @@ static void sigint_handler(int signum)
 }
 
 /***********************************************************************
+ * function:    local_sr_print
+ * description: stdin handler. signal to print sr items in local mode.
+ * in param:    sr_session_ctx_t *sess
+ * return:      
+ **********************************************************************/
+static void local_sr_print(sr_session_ctx_t *sess)
+{
+    int rc = SR_ERR_OK;
+    char c;
+    FILE *stream = stdout;
+	sr_val_t *values = NULL;
+	size_t count = 0;
+	int i;
+	uint8_t proto = 0;
+
+	c = getchar();
+	/*
+	 * options:
+	 * 'p': print rules set
+	 * 's': save current configuration file as OLD_CONFIG_FILE
+	 *      if file already exist it will be overwritten
+	 */
+	if (c == 's') {
+		/* open configuration file */
+		stream = fopen(OLD_CONFIG_FILE, "w");
+		if (stream == NULL) {
+			updatem_error("fopen failed: %s\n", strerror(errno));
+			return;
+		}
+	}
+	if (c == 'p' || c == 's') {
+		rc = sr_get_items(sess, "/saferide:*//*", &values, &count);
+		if (rc != SR_ERR_OK) {
+			updatem_error("sr_get_items failed: (%s)\n", sr_strerror(rc));
+		}
+		else
+		{
+			for (i = 0; i < count; i++) {
+				switch (values[i].type) {
+				case SR_LIST_T:
+					/* print only xpath */
+					if (strstr(values[i].xpath, "/tuple") != NULL) {
+						fprintf(stream, "%s\n", values[i].xpath);
+					} else {
+						fprintf(stream, "\n%s\n", values[i].xpath);
+					}
+					break;
+				case SR_CONTAINER_T:
+					/* ignore */
+					break;
+				default:
+					if (strstr(values[i].xpath, "/name") != NULL) {
+					} else if (strstr(values[i].xpath, "/id") != NULL) {
+					} else if (strstr(values[i].xpath, "/num") != NULL) {
+					} else if (strstr(values[i].xpath, "/user") != NULL) {
+					} else if (strstr(values[i].xpath, "/program") != NULL) {
+					} else if (strstr(values[i].xpath, "/proto") != NULL) {
+						proto = *((uint8_t*)&values[i].data);
+						sr_print_val_stream(stream, &values[i]);
+					} else if (strstr(values[i].xpath, "/srcport") != NULL && (proto != 6) && (proto != 17)) {
+					} else if (strstr(values[i].xpath, "/dstport") != NULL && (proto != 6) && (proto != 17)) {
+						/* srcport and dstport are only valid for proto 6/17 */
+					} else if ((strstr(values[i].xpath, "/action") != NULL) && (strstr(values[i].xpath, "allow") != NULL)) {
+						/* do not print "action = allow" when "name = allow" */
+					} else {
+						sr_print_val_stream(stream, &values[i]);
+					}
+					break;
+				}
+			}
+			sr_free_values(values, count);
+		}
+	}
+	if (c == 's') {
+		fclose(stream);
+	}
+}
+
+/***********************************************************************
  * function:    main
  * description: 
  * in param:    
@@ -764,13 +843,20 @@ int main(int argc, char **argv)
         }
 
         while (true) {
-            /* watch for exit signal on pipe forever*/
-            FD_ZERO(&rfds);
-            FD_SET(pipe_fds[0], &rfds);
+			/* watch for stdin/exit signal on pipe forever */
+			FD_ZERO(&rfds);
+			FD_SET(pipe_fds[0], &rfds);
+			FD_SET(fileno(stdin), &rfds);
 
-            select((pipe_fds[0]+1), &rfds, NULL, NULL, NULL);
-            updatem_debug("main loop exit\n");
-            break;
+			if (select((pipe_fds[0]+1), &rfds, NULL, NULL, NULL) > 0) {
+				if (FD_ISSET(fileno(stdin), &rfds)) {
+					local_sr_print(sess);
+				} else {
+					/* exit signal */
+					updatem_debug("main loop exit\n");
+					break;
+				}
+			}
         }
     } else {
         struct stat log_file_stat;
