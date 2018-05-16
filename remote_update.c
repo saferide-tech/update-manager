@@ -129,14 +129,16 @@ static size_t download_policy_cb(void *contents, size_t size, size_t nmemb, void
  * in param:    char *new_version
  * return:      
  **********************************************************************/
-int download_latest_policy(char *new_version)
+int download_latest_policy(char *new_version, char *config_dir)
 {
     CURL *curl_handle;
     FILE *tmp_config_file;
     char remote_file_url[MAX_STR_SIZE];
     CURLcode res;
     int ret = 0;
+    char tmp_file[MAX_STR_SIZE];
 
+    snprintf(tmp_file, MAX_STR_SIZE, "%s/%s", config_dir, TMP_FILE);
     snprintf(remote_file_url, MAX_STR_SIZE,
         "https://%s/sec_policy_%s.xsp", server, new_version);
 
@@ -159,7 +161,7 @@ int download_latest_policy(char *new_version)
     curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, download_policy_cb);
 
     /* open the file */
-    tmp_config_file = fopen(TMP_FILE, "wb+");
+    tmp_config_file = fopen(tmp_file, "wb+");
     if(tmp_config_file) {
         curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, tmp_config_file);
         res = curl_easy_perform(curl_handle);
@@ -167,10 +169,13 @@ int download_latest_policy(char *new_version)
             updatem_error("curl_easy_perform failed: %s\n", curl_easy_strerror(res));
             ret = -1;
         } else {
+            char config_file_full[MAX_STR_SIZE];
+
+            snprintf(config_file_full, MAX_STR_SIZE, "%s/%s", config_dir, CONFIG_FILE);
             /* copy tmp to real config file */
-            if (rename(TMP_FILE, FULL_CONFIG_FILE)) {
+            if (rename(tmp_file, config_file_full)) {
                 updatem_error("failed to rename %s to %s: %s\n", TMP_FILE,
-                    FULL_CONFIG_FILE, strerror(errno));
+                    config_file_full, strerror(errno));
                 ret = -1;
             }
         }

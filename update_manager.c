@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <errno.h>
 #include <string.h>
+#include <stdarg.h>
 #include <poll.h>
 #include <sys/inotify.h>
 #include <unistd.h>
@@ -16,7 +17,10 @@
 #include <semaphore.h>
 #include "update_manager.h"
 
-int pipe_fds[2];
+static int pipe_fds[2];
+static int debug_level = LEVEL_ERROR;
+static char config_dir[MAX_STR_SIZE];
+static char config_file_full[MAX_STR_SIZE];
 
 static param_t default_action_params[] = {
     {"action", SR_STRING_T, "allow"},
@@ -241,10 +245,11 @@ static int update_policy(sr_session_ctx_t *sess)
         return rc;
     }
 
-    //updatem_debug("reading configuration from %s\n", FULL_CONFIG_FILE);
-    config_file = fopen(FULL_CONFIG_FILE, "r");
+    snprintf(config_file_full, MAX_STR_SIZE, "%s/%s", config_dir, CONFIG_FILE); 
+    updatem_debug("reading configuration from %s\n", config_file_full);
+    config_file = fopen(config_file_full, "r");
     if (config_file == NULL) {
-        updatem_error("fopen: %s\n", strerror(errno));
+        updatem_error("fopen %s: %s\n", config_file_full, strerror(errno));
         return SR_ERR_IO;
     }
 
@@ -586,9 +591,9 @@ static void* monitor_file(void *data)
 
     if (sess) {
         /* this means we are working in local mode ... watch config file */
-        wd = inotify_add_watch(fd, CONFIG_DIR, notify_mask);
+        wd = inotify_add_watch(fd, config_dir, notify_mask);
         if (wd == -1) {
-            updatem_error("Cannot watch '%s': %s\n", CONFIG_DIR,
+            updatem_error("Cannot watch '%s': %s\n", config_dir,
                 strerror(errno));
             return NULL;
         }
@@ -703,72 +708,76 @@ static void local_sr_print(sr_session_ctx_t *sess)
     int rc = SR_ERR_OK;
     char c;
     FILE *stream = stdout;
-	sr_val_t *values = NULL;
-	size_t count = 0;
-	int i;
-	uint8_t proto = 0;
+    sr_val_t *values = NULL;
+    size_t count = 0;
+    int i;
+    uint8_t proto = 0;
 
-	c = getchar();
-	/*
-	 * options:
-	 * 'p': print rules set
-	 * 's': save current configuration file as OLD_CONFIG_FILE
-	 *      if file already exist it will be overwritten
-	 */
-	if (c == 's') {
-		/* open configuration file */
-		stream = fopen(OLD_CONFIG_FILE, "w");
-		if (stream == NULL) {
-			updatem_error("fopen failed: %s\n", strerror(errno));
-			return;
-		}
-	}
-	if (c == 'p' || c == 's') {
-		rc = sr_get_items(sess, "/saferide:*//*", &values, &count);
-		if (rc != SR_ERR_OK) {
-			updatem_error("sr_get_items failed: (%s)\n", sr_strerror(rc));
-		}
-		else
-		{
-			for (i = 0; i < count; i++) {
-				switch (values[i].type) {
-				case SR_LIST_T:
-					/* print only xpath */
-					if (strstr(values[i].xpath, "/tuple") != NULL) {
-						fprintf(stream, "%s\n", values[i].xpath);
-					} else {
-						fprintf(stream, "\n%s\n", values[i].xpath);
-					}
-					break;
-				case SR_CONTAINER_T:
-					/* ignore */
-					break;
-				default:
-					if (strstr(values[i].xpath, "/name") != NULL) {
-					} else if (strstr(values[i].xpath, "/id") != NULL) {
-					} else if (strstr(values[i].xpath, "/num") != NULL) {
-					} else if (strstr(values[i].xpath, "/user") != NULL) {
-					} else if (strstr(values[i].xpath, "/program") != NULL) {
-					} else if (strstr(values[i].xpath, "/proto") != NULL) {
-						proto = *((uint8_t*)&values[i].data);
-						sr_print_val_stream(stream, &values[i]);
-					} else if (strstr(values[i].xpath, "/srcport") != NULL && (proto != 6) && (proto != 17)) {
-					} else if (strstr(values[i].xpath, "/dstport") != NULL && (proto != 6) && (proto != 17)) {
-						/* srcport and dstport are only valid for proto 6/17 */
-					} else if ((strstr(values[i].xpath, "/action") != NULL) && (strstr(values[i].xpath, "allow") != NULL)) {
-						/* do not print "action = allow" when "name = allow" */
-					} else {
-						sr_print_val_stream(stream, &values[i]);
-					}
-					break;
-				}
-			}
-			sr_free_values(values, count);
-		}
-	}
-	if (c == 's') {
-		fclose(stream);
-	}
+    c = getchar();
+    /*
+     * options:
+     * 'p': print rules set
+     * 's': save current configuration file as OLD_CONFIG_FILE
+     *      if file already exist it will be overwritten
+     */
+    if (c == 's') {
+        /* open configuration file */
+        char old_config_file[MAX_STR_SIZE];
+
+        snprintf(old_config_file, MAX_STR_SIZE, "%s/%s", config_dir, OLD_CONFIG_FILE);
+        updatem_debug("opening old config %s\n", old_config_file);
+        stream = fopen(old_config_file, "w");
+        if (stream == NULL) {
+            updatem_error("fopen %s failed: %s\n", old_config_file, strerror(errno));
+            return;
+        }
+    }
+    if (c == 'p' || c == 's') {
+        rc = sr_get_items(sess, "/saferide:*//*", &values, &count);
+        if (rc != SR_ERR_OK) {
+            updatem_error("sr_get_items failed: (%s)\n", sr_strerror(rc));
+        }
+        else
+        {
+            for (i = 0; i < count; i++) {
+                switch (values[i].type) {
+                case SR_LIST_T:
+                    /* print only xpath */
+                    if (strstr(values[i].xpath, "/tuple") != NULL) {
+                        fprintf(stream, "%s\n", values[i].xpath);
+                    } else {
+                        fprintf(stream, "\n%s\n", values[i].xpath);
+                    }
+                    break;
+                case SR_CONTAINER_T:
+                    /* ignore */
+                    break;
+                default:
+                    if (strstr(values[i].xpath, "/name") != NULL) {
+                    } else if (strstr(values[i].xpath, "/id") != NULL) {
+                    } else if (strstr(values[i].xpath, "/num") != NULL) {
+                    } else if (strstr(values[i].xpath, "/user") != NULL) {
+                    } else if (strstr(values[i].xpath, "/program") != NULL) {
+                    } else if (strstr(values[i].xpath, "/proto") != NULL) {
+                        proto = *((uint8_t*)&values[i].data);
+                        sr_print_val_stream(stream, &values[i]);
+                    } else if (strstr(values[i].xpath, "/srcport") != NULL && (proto != 6) && (proto != 17)) {
+                    } else if (strstr(values[i].xpath, "/dstport") != NULL && (proto != 6) && (proto != 17)) {
+                        /* srcport and dstport are only valid for proto 6/17 */
+                    } else if ((strstr(values[i].xpath, "/action") != NULL) && (strstr(values[i].xpath, "allow") != NULL)) {
+                        /* do not print "action = allow" when "name = allow" */
+                    } else {
+                        sr_print_val_stream(stream, &values[i]);
+                    }
+                    break;
+                }
+            }
+            sr_free_values(values, count);
+        }
+    }
+    if (c == 's') {
+        fclose(stream);
+    }
 }
 
 /***********************************************************************
@@ -788,22 +797,33 @@ int main(int argc, char **argv)
     bool remote = false;
     fd_set rfds;
 
-    while ((opt = getopt(argc, argv, "lhs:")) != -1) {
+    snprintf(config_dir, MAX_STR_SIZE, "%s", CONFIG_DIR);
+
+    while ((opt = getopt(argc, argv, "lhs:c:d:")) != -1) {
         switch (opt) {
         case 'l':
             remote = false;
             break;
         case 'h':
-            fprintf(stderr, "Usage: %s [-l (local use, default)] [-s (remote server address)]\n", argv[0]);
+            fprintf(stderr, "Usage: %s [-d debug_level 0/1/2/3] [-c config directory. /etc/vsentry default] [-l (local use, default)] [-s (remote server address)]\n", argv[0]);
             exit(0);
         case 's':
             set_server_address(optarg);
             remote = true;
             break;
+        case 'c':
+            snprintf(config_dir, MAX_STR_SIZE, "%s", optarg);
+            break;
+        case 'd':
+            if ((atoi(optarg) >= LEVEL_NONE) && (atoi(optarg)<=LEVEL_DEBUG))
+                debug_level = atoi(optarg);
+            break;
         default:
             break;
         }
     }
+
+    updatem_debug("configuration directory: %s\n", config_dir);
 
     /* this pipe is used to signal the thread we need to exit */
     rc = pipe(pipe_fds);
@@ -843,20 +863,20 @@ int main(int argc, char **argv)
         }
 
         while (true) {
-			/* watch for stdin/exit signal on pipe forever */
-			FD_ZERO(&rfds);
-			FD_SET(pipe_fds[0], &rfds);
-			FD_SET(fileno(stdin), &rfds);
+            /* watch for stdin/exit signal on pipe forever */
+            FD_ZERO(&rfds);
+            FD_SET(pipe_fds[0], &rfds);
+            FD_SET(fileno(stdin), &rfds);
 
-			if (select((pipe_fds[0]+1), &rfds, NULL, NULL, NULL) > 0) {
-				if (FD_ISSET(fileno(stdin), &rfds)) {
-					local_sr_print(sess);
-				} else {
-					/* exit signal */
-					updatem_debug("main loop exit\n");
-					break;
-				}
-			}
+            if (select((pipe_fds[0]+1), &rfds, NULL, NULL, NULL) > 0) {
+                if (FD_ISSET(fileno(stdin), &rfds)) {
+                    local_sr_print(sess);
+                } else {
+                    /* exit signal */
+                    updatem_debug("main loop exit\n");
+                    break;
+                }
+            }
         }
     } else {
         struct stat log_file_stat;
@@ -909,7 +929,7 @@ int main(int argc, char **argv)
             if (get_remote_version(new_version) == 0) {
                 if ((strlen(new_version) > 0) && (strncmp(curr_version, new_version, strlen(new_version)) != 0)) {
                     updatem_debug("update available ... new ver %s\n", new_version);
-                    if (!download_latest_policy(new_version)) {
+                    if (!download_latest_policy(new_version, config_dir)) {
                         update_policy(sess);
                         get_set_current_version(true, new_version);
                         memset(curr_version, 0, sizeof(curr_version));
@@ -943,3 +963,9 @@ cleanup:
     }
     return rc;
 }
+
+int get_debug_level(void)
+{
+    return debug_level;
+}
+
