@@ -1,0 +1,69 @@
+#!/bin/sh
+#
+# start/stop update-manager daemon.
+
+### BEGIN INIT INFO
+# Provides:          
+# Required-Start:    $local_fs
+# Required-Stop:     $local_fs
+# Default-Start:     S 2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: update-manager daemon
+# Description:       SafeRide update-manager daemon
+### END INIT INFO
+
+DESC="SafeRide update-manager daemon"
+
+wait_sysrepo() {
+    counter=0
+    while [ true ]; do
+        pid=`ps -ef |grep sysrepod |grep -v grep | awk '{print $2}'`
+        if [ -z "$pid" ]; then
+            sleep 1
+            counter=$(( $counter + 1 ))
+            if [ $counter -ge 10 ]; then
+                echo "sysrepo is not running ... exiting"
+                exit 1
+            fi
+        else
+            echo "sysrepod $pid is running"
+            break
+        fi
+    done
+}
+
+do_start() {
+    if [ ! -e /etc/vsentry/config.xsp ]; then
+        echo '/saferide:control/engine = start' > /etc/sentry/config.xsp
+    fi
+    wait_sysrepo
+    start-stop-daemon --quiet --exec /usr/bin/update_manager --start
+}
+
+do_stop() {
+    start-stop-daemon --stop --name update_manager --quiet
+}
+
+case "$1" in
+  start)
+    echo "Starting $DESC"
+    do_start
+    ;;
+  stop)
+    echo "Stopping $DESC"
+    do_stop
+    ;;
+  restart|force-reload)
+    echo "Restarting $DESC"
+    do_stop
+    sleep 1
+    do_start
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart|force-reload}" >&2
+    exit 1
+    ;;
+esac
+
+exit 0
+
