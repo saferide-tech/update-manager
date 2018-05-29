@@ -17,8 +17,7 @@ DESC="SafeRide update-manager daemon"
 wait_sysrepo() {
     counter=0
     while [ true ]; do
-        pid=`ps -ef |grep sysrepod |grep -v grep | awk '{print $2}'`
-        if [ -z "$pid" ]; then
+        if [ ! -e /var/run/sysrepod.pid ]; then
             sleep 1
             counter=$(( $counter + 1 ))
             if [ $counter -ge 10 ]; then
@@ -26,7 +25,7 @@ wait_sysrepo() {
                 exit 1
             fi
         else
-            echo "sysrepod $pid is running"
+            echo "sysrepod is running"
             break
         fi
     done
@@ -34,10 +33,10 @@ wait_sysrepo() {
 
 do_start() {
     if [ ! -e /etc/vsentry/config.xsp ]; then
-        echo '/saferide:control/engine = start' > /etc/sentry/config.xsp
+        echo '/saferide:control/engine = start' > /etc/vsentry/config.xsp
     fi
     wait_sysrepo
-    start-stop-daemon --quiet --exec /usr/bin/update_manager --start
+    start-stop-daemon --background --quiet --exec /usr/bin/update_manager --start
 }
 
 do_stop() {
