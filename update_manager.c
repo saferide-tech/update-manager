@@ -756,6 +756,8 @@ static void local_sr_print(sr_session_ctx_t *sess)
                     if (strstr(values[i].xpath, "/name") != NULL) {
                     } else if (strstr(values[i].xpath, "/id") != NULL) {
                     } else if (strstr(values[i].xpath, "/num") != NULL) {
+                    } else if (strstr(values[i].xpath, "/black-list") != NULL) {
+                    } else if (strstr(values[i].xpath, "/terminate") != NULL) {
                     } else if (strstr(values[i].xpath, "/user") != NULL) {
                     } else if (strstr(values[i].xpath, "/program") != NULL) {
                     } else if (strstr(values[i].xpath, "/proto") != NULL) {
@@ -778,6 +780,15 @@ static void local_sr_print(sr_session_ctx_t *sess)
     if (c == 's') {
         fclose(stream);
     }
+    if (c != 'p' && c != 's') {
+        /* wrong key pressed - let user know the options */
+        fprintf(stdout, "Options:\n"
+				"'p':\tprint rules set\n"
+				"'s':\tsave current configuration file as %s/%s\n"
+				"\tif file already exist it will be overwritten\n"
+				"Press the desired option key:\n",
+				CONFIG_DIR, OLD_CONFIG_FILE);
+	}
 }
 
 /***********************************************************************
