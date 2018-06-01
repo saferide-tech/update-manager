@@ -36,7 +36,7 @@ do_start() {
         echo '/saferide:control/engine = start' > /etc/vsentry/config.xsp
     fi
     wait_sysrepo
-    start-stop-daemon --background --quiet --exec /usr/bin/update_manager --start
+    start-stop-daemon --quiet --exec /usr/bin/update_manager --start -- -b
 }
 
 do_stop() {
