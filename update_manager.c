@@ -21,6 +21,7 @@ static int pipe_fds[2];
 static int debug_level = LEVEL_ERROR;
 static char config_dir[MAX_STR_SIZE];
 static char config_file_full[MAX_STR_SIZE];
+static unsigned char background = 0;
 
 static param_t default_action_params[] = {
     {"action", SR_STRING_T, "allow"},
@@ -810,13 +811,13 @@ int main(int argc, char **argv)
 
     snprintf(config_dir, MAX_STR_SIZE, "%s", CONFIG_DIR);
 
-    while ((opt = getopt(argc, argv, "lhs:c:d:")) != -1) {
+    while ((opt = getopt(argc, argv, "lhbs:c:d:")) != -1) {
         switch (opt) {
         case 'l':
             remote = false;
             break;
         case 'h':
-            fprintf(stderr, "Usage: %s [-d debug_level 0/1/2/3] [-c config directory. /etc/vsentry default] [-l (local use, default)] [-s (remote server address)]\n", argv[0]);
+            fprintf(stderr, "Usage: %s [-b background] [-d debug_level 0/1/2/3] [-c config directory. /etc/vsentry default] [-l (local use, default)] [-s (remote server address)]\n", argv[0]);
             exit(0);
         case 's':
             set_server_address(optarg);
@@ -825,6 +826,9 @@ int main(int argc, char **argv)
         case 'c':
             snprintf(config_dir, MAX_STR_SIZE, "%s", optarg);
             break;
+        case 'b':
+            background = 1;
+            break;
         case 'd':
             if ((atoi(optarg) >= LEVEL_NONE) && (atoi(optarg)<=LEVEL_DEBUG))
                 debug_level = atoi(optarg);
@@ -832,6 +836,11 @@ int main(int argc, char **argv)
         default:
             break;
         }
+    }
+
+    if (background && (daemon(0, 0) < 0)) {
+        fprintf(stderr, "failed to run in background, exiting ...\n");
+        exit(-1);
     }
 
     updatem_debug("configuration directory: %s\n", config_dir);
@@ -877,7 +886,8 @@ int main(int argc, char **argv)
             /* watch for stdin/exit signal on pipe forever */
             FD_ZERO(&rfds);
             FD_SET(pipe_fds[0], &rfds);
-            FD_SET(fileno(stdin), &rfds);
+            if (!background)
+                FD_SET(fileno(stdin), &rfds);
 
             if (select((pipe_fds[0]+1), &rfds, NULL, NULL, NULL) > 0) {
                 if (FD_ISSET(fileno(stdin), &rfds)) {
