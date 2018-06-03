@@ -240,135 +240,134 @@ static int update_policy(sr_session_ctx_t *sess)
     sr_val_t *value = NULL, new_val = {0};
     char* tmp;
 
-    rc = sr_delete_item(sess, "/saferide:config", SR_EDIT_DEFAULT);
-    if (SR_ERR_OK != rc) {
-        updatem_error("sr_delete_item: %s\n", sr_strerror(rc));
-        return rc;
-    }
-
     snprintf(config_file_full, MAX_STR_SIZE, "%s/%s", config_dir, CONFIG_FILE); 
     updatem_debug("reading configuration from %s\n", config_file_full);
     config_file = fopen(config_file_full, "r");
     if (config_file == NULL) {
-        updatem_error("fopen %s: %s\n", config_file_full, strerror(errno));
-        return SR_ERR_IO;
+    	updatem_debug("fopen %s: %s\n", config_file_full, strerror(errno));
+    } else {
+    	rc = sr_delete_item(sess, "/saferide:config", SR_EDIT_DEFAULT);
+    	if (SR_ERR_OK != rc) {
+    		updatem_error("sr_delete_item: %s\n", sr_strerror(rc));
+    		return rc;
+    	}
+
+    	/* update changes */
+    	while(fgets(buffer, MAX_STR_SIZE, config_file) != NULL) {
+    		/* clear new-line */
+    		tmp = strchr(buffer, '\n');
+    		if (tmp)
+    			*tmp = 0;
+
+    		/* detect if this set param line or creating of new element */
+    		items = sscanf(buffer, "%s = %s", str_param, str_value);
+    		if (items == 1) {
+    			/* new element ... create it */
+    			int type = TYPE_NONE, sub_type = SUB_TYPE_NONE;
+    			param_t* ptr = NULL;
+    			int array_size = 0;
+
+    			/* creating new element */
+    			if (!strlen(str_param))
+    				/* invalid line */
+    				continue;
+
+    			updatem_debug("creaing new element %s\n", str_param);
+
+    			rc = sr_set_item(sess, str_param, NULL, SR_EDIT_DEFAULT);
+    			if (SR_ERR_OK != rc) {
+    				updatem_error("sr_set_item %s: %s\n", str_param,
+    						sr_strerror(rc));
+    				continue;
+    			}
+
+    			get_entry_type(&type, &sub_type, str_param);
+    			switch (type) {
+    			case TYPE_ACTION:
+    				ptr = default_action_params;
+    				array_size = ARRAYSIZE(default_action_params);
+    				break;
+    			case TYPE_FILE:
+    				if (sub_type == SUB_TYPE_TUPLE) {
+    					ptr = default_file_tuple_params;
+    					array_size = ARRAYSIZE(default_file_tuple_params);
+    				} else if (sub_type == SUB_TYPE_RULE) {
+    					ptr = default_rule_params;
+    					array_size = ARRAYSIZE(default_rule_params);
+    				}
+    				break;
+    			case TYPE_IP:
+    				if (sub_type == SUB_TYPE_TUPLE) {
+    					ptr = default_ip_tuple_params;
+    					array_size = ARRAYSIZE(default_ip_tuple_params);
+    				} else if (sub_type == SUB_TYPE_RULE) {
+    					ptr = default_rule_params;
+    					array_size = ARRAYSIZE(default_rule_params);
+    				}
+    				break;
+    			case TYPE_CAN:
+    				if (sub_type == SUB_TYPE_TUPLE) {
+    					ptr = default_can_tuple_params;
+    					array_size = ARRAYSIZE(default_can_tuple_params);
+    				} else if (sub_type == SUB_TYPE_RULE) {
+    					ptr = default_rule_params;
+    					array_size = ARRAYSIZE(default_rule_params);
+    				}
+    				break;
+    			default:
+    				updatem_error("can't get type of %s\n", str_param);
+    				break;
+    			}
+
+    			if (ptr) {
+    				rc = set_default_params(sess, str_param, ptr, array_size);
+    				if (rc != SR_ERR_OK)
+    					updatem_error("setting new item params to default\n");
+    			}
+    		} else if (items == 2) {
+    			/* setting element */
+    			if (!strlen(str_param) || !strlen(str_value)) {
+    				/* invalid */
+    				updatem_error("invalid str_param\n");
+    				continue;
+    			}
+
+    			updatem_debug("setting %s to %s\n", str_param, str_value);
+
+    			rc = sr_get_item(sess, str_param, &value);
+    			if (rc != SR_ERR_OK) {
+    				updatem_error("sr_get_item %s: %s\n", str_param,
+    						sr_strerror(rc));
+    				continue;
+    			}
+
+    			memset(&new_val, 0, sizeof(sr_val_t));
+    			new_val.type = value->type;
+    			sr_free_val(value);
+
+    			rc = set_str_value(&new_val, str_value);
+    			if (rc != SR_ERR_OK) {
+    				updatem_error("set_str_value failed to set %s to %s: %s\n",
+    						str_param, str_value, sr_strerror(rc));
+    				continue;
+    			}
+
+    			/* set the new value */
+    			rc = sr_set_item(sess, str_param, &new_val, SR_EDIT_DEFAULT);
+    			if (SR_ERR_OK != rc)
+    				updatem_error("sr_set_item %s to %s: %s\n", str_param,
+    						str_value, sr_strerror(rc));
+    		}
+    	}
+    	/* commit the changes */
+    	rc = sr_commit(sess);
+    	if (SR_ERR_OK != rc)
+    		updatem_error("sr_commit: %s\n", sr_strerror(rc));
+
+    	rc = sr_copy_config(sess, "saferide", SR_DS_RUNNING, SR_DS_STARTUP);
+    	if (SR_ERR_OK != rc)
+    		updatem_error("sr_copy_config: %s\n", sr_strerror(rc));
     }
-
-    while(fgets(buffer, MAX_STR_SIZE, config_file) != NULL) {
-        /* clear new-line */
-        tmp = strchr(buffer, '\n');
-        if (tmp)
-            *tmp = 0;
-
-        /* detect if this set param line or creating of new element */
-        items = sscanf(buffer, "%s = %s", str_param, str_value);
-        if (items == 1) {
-            /* new element ... create it */
-            int type = TYPE_NONE, sub_type = SUB_TYPE_NONE;
-            param_t* ptr = NULL;
-            int array_size = 0;
-
-            /* creating new element */
-            if (!strlen(str_param))
-                /* invalid line */
-                continue;
-
-            updatem_debug("creaing new element %s\n", str_param);
-
-            rc = sr_set_item(sess, str_param, NULL, SR_EDIT_DEFAULT);
-            if (SR_ERR_OK != rc) {
-                updatem_error("sr_set_item %s: %s\n", str_param,
-                    sr_strerror(rc));
-                continue;
-            }
-
-            get_entry_type(&type, &sub_type, str_param);
-            switch (type) {
-            case TYPE_ACTION:
-                ptr = default_action_params;
-                array_size = ARRAYSIZE(default_action_params);
-                break;
-            case TYPE_FILE:
-                if (sub_type == SUB_TYPE_TUPLE) {
-                    ptr = default_file_tuple_params;
-                    array_size = ARRAYSIZE(default_file_tuple_params);
-                } else if (sub_type == SUB_TYPE_RULE) {
-                    ptr = default_rule_params;
-                    array_size = ARRAYSIZE(default_rule_params);
-                }
-                break;
-            case TYPE_IP:
-                if (sub_type == SUB_TYPE_TUPLE) {
-                    ptr = default_ip_tuple_params;
-                    array_size = ARRAYSIZE(default_ip_tuple_params);
-                } else if (sub_type == SUB_TYPE_RULE) {
-                    ptr = default_rule_params;
-                    array_size = ARRAYSIZE(default_rule_params);
-                }
-                break;
-            case TYPE_CAN:
-                if (sub_type == SUB_TYPE_TUPLE) {
-                    ptr = default_can_tuple_params;
-                    array_size = ARRAYSIZE(default_can_tuple_params);
-                } else if (sub_type == SUB_TYPE_RULE) {
-                    ptr = default_rule_params;
-                    array_size = ARRAYSIZE(default_rule_params);
-                }
-                break;
-            default:
-                updatem_error("can't get type of %s\n", str_param);
-                break;
-            }
-
-            if (ptr) {
-                rc = set_default_params(sess, str_param, ptr, array_size);
-                if (rc != SR_ERR_OK)
-                    updatem_error("setting new item params to default\n");
-            }
-        } else if (items == 2) {
-            /* setting element */
-            if (!strlen(str_param) || !strlen(str_value)) {
-                /* invalid */
-                updatem_error("invalid str_param\n");
-                continue;
-            }
-
-            updatem_debug("setting %s to %s\n", str_param, str_value);
-
-            rc = sr_get_item(sess, str_param, &value);
-            if (rc != SR_ERR_OK) {
-                updatem_error("sr_get_item %s: %s\n", str_param,
-                    sr_strerror(rc));
-                continue;
-            }
-
-            memset(&new_val, 0, sizeof(sr_val_t));
-            new_val.type = value->type;
-            sr_free_val(value);
-
-            rc = set_str_value(&new_val, str_value);
-            if (rc != SR_ERR_OK) {
-                updatem_error("set_str_value failed to set %s to %s: %s\n",
-                    str_param, str_value, sr_strerror(rc));
-                continue;
-            }
-
-            /* set the new value */
-            rc = sr_set_item(sess, str_param, &new_val, SR_EDIT_DEFAULT);
-            if (SR_ERR_OK != rc)
-                updatem_error("sr_set_item %s to %s: %s\n", str_param,
-                    str_value, sr_strerror(rc));
-        }
-    }
-
-    /* commit the changes */
-    rc = sr_commit(sess);
-    if (SR_ERR_OK != rc)
-        updatem_error("sr_commit: %s\n", sr_strerror(rc));
-
-    rc = sr_copy_config(sess, "saferide", SR_DS_RUNNING, SR_DS_STARTUP);
-    if (SR_ERR_OK != rc)
-        updatem_error("sr_copy_config: %s\n", sr_strerror(rc));
 
     return rc;
 }
@@ -718,78 +717,97 @@ static void local_sr_print(sr_session_ctx_t *sess)
     /*
      * options:
      * 'p': print rules set
+     * 'c': create new configuration file
+     *      works only if configuration file does not exist
      * 's': save current configuration file as OLD_CONFIG_FILE
      *      if file already exist it will be overwritten
      */
-    if (c == 's') {
-        /* open configuration file */
-        char old_config_file[MAX_STR_SIZE];
+    if (c == 'p' || c == 's' || c == 'c') {
 
-        snprintf(old_config_file, MAX_STR_SIZE, "%s/%s", config_dir, OLD_CONFIG_FILE);
-        updatem_debug("opening old config %s\n", old_config_file);
-        stream = fopen(old_config_file, "w");
-        if (stream == NULL) {
-            updatem_error("fopen %s failed: %s\n", old_config_file, strerror(errno));
-            return;
-        }
-    }
-    if (c == 'p' || c == 's') {
-        rc = sr_get_items(sess, "/saferide:*//*", &values, &count);
-        if (rc != SR_ERR_OK) {
-            updatem_error("sr_get_items failed: (%s)\n", sr_strerror(rc));
-        }
-        else
-        {
-            for (i = 0; i < count; i++) {
-                switch (values[i].type) {
-                case SR_LIST_T:
-                    /* print only xpath */
-                    if (strstr(values[i].xpath, "/tuple") != NULL) {
-                        fprintf(stream, "%s\n", values[i].xpath);
-                    } else {
-                        fprintf(stream, "\n%s\n", values[i].xpath);
-                    }
-                    break;
-                case SR_CONTAINER_T:
-                    /* ignore */
-                    break;
-                default:
-                    if (strstr(values[i].xpath, "/name") != NULL) {
-                    } else if (strstr(values[i].xpath, "/id") != NULL) {
-                    } else if (strstr(values[i].xpath, "/num") != NULL) {
-                    } else if (strstr(values[i].xpath, "/black-list") != NULL) {
-                    } else if (strstr(values[i].xpath, "/terminate") != NULL) {
-                    } else if (strstr(values[i].xpath, "/user") != NULL) {
-                    } else if (strstr(values[i].xpath, "/program") != NULL) {
-                    } else if (strstr(values[i].xpath, "/proto") != NULL) {
-                        proto = *((uint8_t*)&values[i].data);
-                        sr_print_val_stream(stream, &values[i]);
-                    } else if (strstr(values[i].xpath, "/srcport") != NULL && (proto != 6) && (proto != 17)) {
-                    } else if (strstr(values[i].xpath, "/dstport") != NULL && (proto != 6) && (proto != 17)) {
-                        /* srcport and dstport are only valid for proto 6/17 */
-                    } else if ((strstr(values[i].xpath, "/action") != NULL) && (strstr(values[i].xpath, "allow") != NULL)) {
-                        /* do not print "action = allow" when "name = allow" */
-                    } else {
-                        sr_print_val_stream(stream, &values[i]);
-                    }
-                    break;
-                }
-            }
-            sr_free_values(values, count);
-        }
-    }
-    if (c == 's') {
-        fclose(stream);
-    }
-    if (c != 'p' && c != 's') {
-        /* wrong key pressed - let user know the options */
-        fprintf(stdout, "Options:\n"
-				"'p':\tprint rules set\n"
-				"'s':\tsave current configuration file as %s/%s\n"
-				"\tif file already exist it will be overwritten\n"
-				"Press the desired option key:\n",
+    	/* open configuration file */
+    	if (c == 's') {
+    		char old_config_file[MAX_STR_SIZE];
+    		snprintf(old_config_file, MAX_STR_SIZE, "%s/%s", config_dir, OLD_CONFIG_FILE);
+    		updatem_debug("opening old config %s\n", old_config_file);
+    		stream = fopen(old_config_file, "w");
+    		if (stream == NULL) {
+    			updatem_error("fopen %s failed: %s\n", old_config_file, strerror(errno));
+    			return;
+    		}
+    	} else if (c == 'c') {
+    		char config_file[MAX_STR_SIZE];
+    		snprintf(config_file, MAX_STR_SIZE, "%s/%s", config_dir, CONFIG_FILE);
+    		stream = fopen(config_file, "r");
+    		if (stream != NULL) {
+    			fprintf(stdout, "Configuration file already exist\n");
+    			fclose(stream);
+    			return;
+    		}
+    		stream = fopen(config_file, "w");
+    		if (stream == NULL) {
+    			updatem_error("fopen %s failed: %s\n", config_file, strerror(errno));
+    			return;
+    		}
+    	}
+
+    	rc = sr_get_items(sess, "/saferide:*//*", &values, &count);
+    	if (rc != SR_ERR_OK) {
+    		updatem_debug("sr_get_items failed: (%s)\n", sr_strerror(rc));
+    		fprintf(stdout, "Configuration file is empty or does not exist\n");
+    		return;
+    	}
+    	for (i = 0; i < count; i++) {
+    		switch (values[i].type) {
+    		case SR_LIST_T:
+    			/* print only xpath */
+    			if (strstr(values[i].xpath, "/tuple") != NULL) {
+    				fprintf(stream, "%s\n", values[i].xpath);
+    			} else {
+    				fprintf(stream, "\n%s\n", values[i].xpath);
+    			}
+    			break;
+    		case SR_CONTAINER_T:
+    			/* ignore */
+    			break;
+    		default:
+    			if (strstr(values[i].xpath, "/name") != NULL) {
+    			} else if (strstr(values[i].xpath, "/id") != NULL) {
+    			} else if (strstr(values[i].xpath, "/num") != NULL) {
+    			} else if (strstr(values[i].xpath, "/black-list") != NULL) {
+    			} else if (strstr(values[i].xpath, "/terminate") != NULL) {
+    			} else if (strstr(values[i].xpath, "/user") != NULL) {
+    			} else if (strstr(values[i].xpath, "/program") != NULL) {
+    			} else if (strstr(values[i].xpath, "/proto") != NULL) {
+    				proto = *((uint8_t*)&values[i].data);
+    				sr_print_val_stream(stream, &values[i]);
+    			} else if (strstr(values[i].xpath, "/srcport") != NULL && (proto != 6) && (proto != 17)) {
+    			} else if (strstr(values[i].xpath, "/dstport") != NULL && (proto != 6) && (proto != 17)) {
+    				/* srcport and dstport are only valid for proto 6/17 */
+    			} else if ((strstr(values[i].xpath, "/action") != NULL) && (strstr(values[i].xpath, "allow") != NULL)) {
+    				/* do not print "action = allow" when "name = allow" */
+    			} else {
+    				sr_print_val_stream(stream, &values[i]);
+    			}
+    			break;
+    		}
+    	}
+    	sr_free_values(values, count);
+
+    	if (c == 's' || c == 'c') {
+    		fclose(stream);
+    	}
+    } else if (c != '\n') {
+
+    	/* wrong key pressed - let user know the options */
+    	fprintf(stdout, "Options:\n"
+    			"'p':\tprint rules set\n"
+    			"'c':\tcreate new configuration file\n"
+    			"\tworks only if configuration file does not exist\n"
+    			"'s':\tsave current configuration file as %s/%s\n"
+    			"\tif file already exist it will be overwritten\n"
+    			"Press the desired option key:\n",
 				CONFIG_DIR, OLD_CONFIG_FILE);
-	}
+    }
 }
 
 /***********************************************************************
