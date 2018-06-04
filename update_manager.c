@@ -704,7 +704,6 @@ static void get_rules_set_and_print(sr_session_ctx_t *sess, FILE *stream)
     sr_val_t *values = NULL;
     size_t count = 0;
 	int i;
-    uint8_t proto = 0;
 
     rc = sr_get_items(sess, "/saferide:*//*", &values, &count);
     if (rc != SR_ERR_OK) {
@@ -727,21 +726,11 @@ static void get_rules_set_and_print(sr_session_ctx_t *sess, FILE *stream)
 			/* ignore */
 			break;
 		default:
-			if (strstr(values[i].xpath, "/name") != NULL) {
+			if (!values[i].data.string_val) 
+	                        continue;
+			else if (strstr(values[i].xpath, "/name") != NULL) {
 			} else if (strstr(values[i].xpath, "/id") != NULL) {
 			} else if (strstr(values[i].xpath, "/num") != NULL) {
-			} else if (strstr(values[i].xpath, "/black-list") != NULL) {
-			} else if (strstr(values[i].xpath, "/terminate") != NULL) {
-			} else if (strstr(values[i].xpath, "/user") != NULL) {
-			} else if (strstr(values[i].xpath, "/program") != NULL) {
-			} else if (strstr(values[i].xpath, "/proto") != NULL) {
-				proto = *((uint8_t*)&values[i].data);
-				sr_print_val_stream(stream, &values[i]);
-			} else if (strstr(values[i].xpath, "/srcport") != NULL && (proto != 6) && (proto != 17)) {
-			} else if (strstr(values[i].xpath, "/dstport") != NULL && (proto != 6) && (proto != 17)) {
-				/* srcport and dstport are only valid for proto 6/17 */
-			} else if ((strstr(values[i].xpath, "/action") != NULL) && (strstr(values[i].xpath, "allow") != NULL)) {
-				/* do not print "action = allow" when "name = allow" */
 			} else {
 				sr_print_val_stream(stream, &values[i]);
 			}
