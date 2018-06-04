@@ -40,7 +40,7 @@ do_start() {
 }
 
 do_stop() {
-    start-stop-daemon --stop --name update_manager --quiet
+    start-stop-daemon --stop --name update_manager --quiet --signal SIGINT
 }
 
 case "$1" in
