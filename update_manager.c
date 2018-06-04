@@ -697,6 +697,60 @@ static void sigint_handler(int signum)
         updatem_error("write to pipe failed: %s\n", strerror(errno));
 }
 
+static void get_rules_set_and_print(sr_session_ctx_t *sess, FILE *stream)
+{
+    int rc = SR_ERR_OK;
+    sr_val_t *values = NULL;
+    size_t count = 0;
+	int i;
+    uint8_t proto = 0;
+
+    rc = sr_get_items(sess, "/saferide:*//*", &values, &count);
+    if (rc != SR_ERR_OK) {
+    	updatem_debug("sr_get_items failed: (%s)\n", sr_strerror(rc));
+    	fprintf(stdout, "Configuration is empty\n");
+    	return;
+    }
+
+	for (i = 0; i < count; i++) {
+		switch (values[i].type) {
+		case SR_LIST_T:
+			/* print only xpath */
+			if (strstr(values[i].xpath, "/tuple") != NULL) {
+				fprintf(stream, "%s\n", values[i].xpath);
+			} else {
+				fprintf(stream, "\n%s\n", values[i].xpath);
+			}
+			break;
+		case SR_CONTAINER_T:
+			/* ignore */
+			break;
+		default:
+			if (strstr(values[i].xpath, "/name") != NULL) {
+			} else if (strstr(values[i].xpath, "/id") != NULL) {
+			} else if (strstr(values[i].xpath, "/num") != NULL) {
+			} else if (strstr(values[i].xpath, "/black-list") != NULL) {
+			} else if (strstr(values[i].xpath, "/terminate") != NULL) {
+			} else if (strstr(values[i].xpath, "/user") != NULL) {
+			} else if (strstr(values[i].xpath, "/program") != NULL) {
+			} else if (strstr(values[i].xpath, "/proto") != NULL) {
+				proto = *((uint8_t*)&values[i].data);
+				sr_print_val_stream(stream, &values[i]);
+			} else if (strstr(values[i].xpath, "/srcport") != NULL && (proto != 6) && (proto != 17)) {
+			} else if (strstr(values[i].xpath, "/dstport") != NULL && (proto != 6) && (proto != 17)) {
+				/* srcport and dstport are only valid for proto 6/17 */
+			} else if ((strstr(values[i].xpath, "/action") != NULL) && (strstr(values[i].xpath, "allow") != NULL)) {
+				/* do not print "action = allow" when "name = allow" */
+			} else {
+				sr_print_val_stream(stream, &values[i]);
+			}
+			break;
+		}
+	}
+
+	sr_free_values(values, count);
+}
+
 /***********************************************************************
  * function:    local_sr_print
  * description: stdin handler. signal to print sr items in local mode.
@@ -705,107 +759,55 @@ static void sigint_handler(int signum)
  **********************************************************************/
 static void local_sr_print(sr_session_ctx_t *sess)
 {
-    int rc = SR_ERR_OK;
-    char c;
     FILE *stream = stdout;
-    sr_val_t *values = NULL;
-    size_t count = 0;
-    int i;
-    uint8_t proto = 0;
+    char config_file[MAX_STR_SIZE];
+    char old_config_file[MAX_STR_SIZE];
 
-    c = getchar();
     /*
      * options:
      * 'p': print rules set
-     * 'c': create new configuration file
-     *      works only if configuration file does not exist
-     * 's': save current configuration file as OLD_CONFIG_FILE
-     *      if file already exist it will be overwritten
+     * 's': save current configuration in file CONFIG_FILE
+     *      if file already exist, it will first be saved as OLD_CONFIG_FILE,
+     *      and then replaced with current configuration
+     *      if OLD_CONFIG_FILE already exist, it will be overwritten
      */
-    if (c == 'p' || c == 's' || c == 'c') {
+    switch (getchar()) {
+    case 's': /* save */
+    	snprintf(old_config_file, MAX_STR_SIZE, "%s/%s", config_dir, OLD_CONFIG_FILE);
+    	snprintf(config_file, MAX_STR_SIZE, "%s/%s", config_dir, CONFIG_FILE);
+
+    	/* save current configuration in old configuration file */
+    	rename(config_file, old_config_file);
 
     	/* open configuration file */
-    	if (c == 's') {
-    		char old_config_file[MAX_STR_SIZE];
-    		snprintf(old_config_file, MAX_STR_SIZE, "%s/%s", config_dir, OLD_CONFIG_FILE);
-    		updatem_debug("opening old config %s\n", old_config_file);
-    		stream = fopen(old_config_file, "w");
-    		if (stream == NULL) {
-    			updatem_error("fopen %s failed: %s\n", old_config_file, strerror(errno));
-    			return;
-    		}
-    	} else if (c == 'c') {
-    		char config_file[MAX_STR_SIZE];
-    		snprintf(config_file, MAX_STR_SIZE, "%s/%s", config_dir, CONFIG_FILE);
-    		stream = fopen(config_file, "r");
-    		if (stream != NULL) {
-    			fprintf(stdout, "Configuration file already exist\n");
-    			fclose(stream);
-    			return;
-    		}
-    		stream = fopen(config_file, "w");
-    		if (stream == NULL) {
-    			updatem_error("fopen %s failed: %s\n", config_file, strerror(errno));
-    			return;
-    		}
-    	}
-
-    	rc = sr_get_items(sess, "/saferide:*//*", &values, &count);
-    	if (rc != SR_ERR_OK) {
-    		updatem_debug("sr_get_items failed: (%s)\n", sr_strerror(rc));
-    		fprintf(stdout, "Configuration file is empty or does not exist\n");
+    	stream = fopen(config_file, "w");
+    	if (stream == NULL) {
+    		updatem_error("fopen %s failed: %s\n", config_file, strerror(errno));
     		return;
     	}
-    	for (i = 0; i < count; i++) {
-    		switch (values[i].type) {
-    		case SR_LIST_T:
-    			/* print only xpath */
-    			if (strstr(values[i].xpath, "/tuple") != NULL) {
-    				fprintf(stream, "%s\n", values[i].xpath);
-    			} else {
-    				fprintf(stream, "\n%s\n", values[i].xpath);
-    			}
-    			break;
-    		case SR_CONTAINER_T:
-    			/* ignore */
-    			break;
-    		default:
-    			if (strstr(values[i].xpath, "/name") != NULL) {
-    			} else if (strstr(values[i].xpath, "/id") != NULL) {
-    			} else if (strstr(values[i].xpath, "/num") != NULL) {
-    			} else if (strstr(values[i].xpath, "/black-list") != NULL) {
-    			} else if (strstr(values[i].xpath, "/terminate") != NULL) {
-    			} else if (strstr(values[i].xpath, "/user") != NULL) {
-    			} else if (strstr(values[i].xpath, "/program") != NULL) {
-    			} else if (strstr(values[i].xpath, "/proto") != NULL) {
-    				proto = *((uint8_t*)&values[i].data);
-    				sr_print_val_stream(stream, &values[i]);
-    			} else if (strstr(values[i].xpath, "/srcport") != NULL && (proto != 6) && (proto != 17)) {
-    			} else if (strstr(values[i].xpath, "/dstport") != NULL && (proto != 6) && (proto != 17)) {
-    				/* srcport and dstport are only valid for proto 6/17 */
-    			} else if ((strstr(values[i].xpath, "/action") != NULL) && (strstr(values[i].xpath, "allow") != NULL)) {
-    				/* do not print "action = allow" when "name = allow" */
-    			} else {
-    				sr_print_val_stream(stream, &values[i]);
-    			}
-    			break;
-    		}
-    	}
-    	sr_free_values(values, count);
 
-    	if (c == 's' || c == 'c') {
-    		fclose(stream);
-    	}
-    } else if (c != '\n') {
+    	get_rules_set_and_print(sess, stream);
 
-    	/* wrong key pressed - let user know the options */
+    	fclose(stream);
+    	break;
+
+    case 'p': /* print */
+    	get_rules_set_and_print(sess, stream);
+    	break;
+
+    case '\n':
+    	break;
+
+    default: /* wrong key pressed - let user know the options */
     	fprintf(stdout, "Options:\n"
     			"'p':\tprint rules set\n"
-    			"'c':\tcreate new configuration file\n"
-    			"\tworks only if configuration file does not exist\n"
-    			"'s':\tsave current configuration file as %s/%s\n"
-    			"\tif file already exist it will be overwritten\n"
+    			"'s':\tsave current configuration in file %s/%s\n"
+    			"\tif file already exist, it will first be saved as %s/%s,\n"
+    			"\tand then replaced with current configuration\n"
+    			"\tif %s/%s already exist, it will be overwritten\n"
     			"Press the desired option key:\n",
+				CONFIG_DIR, CONFIG_FILE,
+				CONFIG_DIR, OLD_CONFIG_FILE,
 				CONFIG_DIR, OLD_CONFIG_FILE);
     }
 }
