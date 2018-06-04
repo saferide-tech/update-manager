@@ -11,7 +11,7 @@ SRCS 		:=  update_manager.c \
 OBJS		:=  $(addprefix $(OBJDIR)/,$(SRCS:.c=.o))
 DEPS		:=  $(OBJS:.o=.d)
 
-LIBS		:=  -lsysrepo -lpthread -lcurl
+LIBS		:=  -lsysrepo -lpthread -lcurl -lbsd
 
 CFLAGS 		+=  -MMD -Wall
 

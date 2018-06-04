@@ -15,6 +15,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <semaphore.h>
+#include <bsd/libutil.h>
 #include "update_manager.h"
 
 static int pipe_fds[2];
@@ -828,6 +829,9 @@ int main(int argc, char **argv)
     int opt, i;
     bool remote = false;
     fd_set rfds;
+    struct pidfh *pfh;
+    pid_t otherpid;
+    int second = 0;
 
     snprintf(config_dir, MAX_STR_SIZE, "%s", CONFIG_DIR);
 
@@ -858,8 +862,20 @@ int main(int argc, char **argv)
         }
     }
 
+    pfh = pidfile_open("/var/run/update_manager.pid", 0644, &otherpid);
+    if (pfh == NULL) {
+        fprintf(stderr, "Daemon already running, pid: %d\n", (int)otherpid);
+        if (background) {
+            fprintf(stderr, "cannot run in background while other daemon running\n");
+            exit(-1);
+        }
+        second = 1;
+    }
+
     if (background && (daemon(0, 0) < 0)) {
         fprintf(stderr, "failed to run in background, exiting ...\n");
+        if (pfh)
+            pidfile_remove(pfh);
         exit(-1);
     }
 
@@ -891,8 +907,10 @@ int main(int argc, char **argv)
         goto cleanup;
     }
 
-    /* read current known security policy and push it to sysrepo */
-    update_policy(sess);
+    /* read current known security policy and push it to sysrepo (only 
+       if 1st instance) */
+    if (!second)
+        update_policy(sess);
 
     if (!remote) {
         /* start monitoring the config file */
@@ -1002,6 +1020,10 @@ cleanup:
     if (NULL != conn) {
         sr_disconnect(conn);
     }
+
+    if (pfh)
+        pidfile_remove(pfh);
+
     return rc;
 }
 
