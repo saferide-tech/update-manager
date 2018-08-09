@@ -35,6 +35,7 @@ static param_t default_action_params[] = {
 static param_t default_can_tuple_params[] = {
     {"msg_id", SR_STRING_T, "000"},
     {"direction", SR_STRING_T, "out"},
+    {"interface", SR_STRING_T, ""},
     {"user", SR_STRING_T, ""},
     {"program", SR_STRING_T, ""},
     {"max_rate", SR_UINT32_T, 0}
