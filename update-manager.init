@@ -3,7 +3,7 @@
 # start/stop update-manager daemon.
 
 ### BEGIN INIT INFO
-# Provides:          
+# Provides:
 # Required-Start:    $local_fs
 # Required-Stop:     $local_fs
 # Default-Start:     S 2 3 4 5
@@ -32,11 +32,11 @@ wait_sysrepo() {
 }
 
 do_start() {
-    if [ ! -e /etc/vsentry/config.xsp ]; then
-        echo '/saferide:control/engine = start' > /etc/vsentry/config.xsp
+	if [ ! -e /etc/vsentry/config.xsp ]; then
+		echo '/saferide:control/engine = start' > /etc/vsentry/config.xsp
     fi
     wait_sysrepo
-    start-stop-daemon --quiet --exec /usr/bin/update_manager --start -- -b
+    start-stop-daemon --quiet --exec /usr/bin/update_manager --start -b --
 }
 
 do_stop() {
